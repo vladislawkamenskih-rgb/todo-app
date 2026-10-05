@@ -690,6 +690,28 @@ button:disabled {
   margin: 0;
 }
 
+/* ---------- Футер ---------- */
+.footer {
+  padding: 0 32px 24px;
+}
+
+.footer__text {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.footer__dot {
+  color: var(--border-strong);
+}
+
 /* ---------- Анімації ---------- */
 .todo-item.is-entering {
   animation: todo-enter 0.3s var(--ease);
@@ -775,6 +797,10 @@ button:disabled {
     padding: 18px 20px;
   }
 
+  .footer {
+    padding: 0 20px 20px;
+  }
+
   .add-form {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -793,6 +819,10 @@ button:disabled {
 
   .topbar {
     padding: 16px;
+  }
+
+  .footer {
+    padding: 0 16px 16px;
   }
 
   .sidebar {
