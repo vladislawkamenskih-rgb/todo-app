@@ -60,7 +60,7 @@ const clearCompletedButton = document.getElementById('clear-completed');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 // ---------- Стан ----------
-let todos = loadTodos();
+let todos = [];                  // копія даних для відображення; джерело істини — taskApi
 let currentFilter = 'all';
 let editingId = null;
 let toggledId = null;            // щойно змінений статус — анімація галочки
@@ -73,9 +73,11 @@ function isValidPriority(value) {
 }
 
 function isValidDateString(value) {
-  return typeof value === 'string'
-    && /^\d{4}-\d{2}-\d{2}$/.test(value)
-    && !Number.isNaN(parseDate(value).getTime());
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  // new Date() «перекочує» неіснуючі дати (2026-02-30 → 2 березня), тож звіряємо місяць і день
+  const [, month, day] = value.split('-').map(Number);
+  const date = parseDate(value);
+  return date.getMonth() === month - 1 && date.getDate() === day;
 }
 
 // Старі завдання (без пріоритету й терміну) отримують значення за замовчуванням
@@ -89,8 +91,13 @@ function normalizeTodo(raw) {
   };
 }
 
-// ---------- Сховище ----------
-function loadTodos() {
+// ---------- Шар даних (data layer) ----------
+// Єдине місце, яке знає, ДЕ зберігаються завдання. Решта коду працює лише через taskApi.
+// Зараз дані лежать у localStorage; щоб підключити сервер, достатньо замінити тіла
+// методів taskApi на fetch() — кожен метод уже відповідає одному HTTP-запиту.
+// Методи повертають копії об'єктів, як справжній API повертає новий JSON.
+
+function readStoredTasks() {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
     return Array.isArray(data) ? data.map(normalizeTodo).filter((t) => t.text) : [];
@@ -99,32 +106,76 @@ function loadTodos() {
   }
 }
 
-function saveTodos() {
+function writeStoredTasks() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(storedTasks));
   } catch {
     // localStorage може бути недоступний (приватний режим) — застосунок працюватиме без збереження
   }
 }
 
-// ---------- Дії ----------
+// Роль «бази даних на сервері»: копія в пам'яті, щоб усе працювало й без localStorage
+let storedTasks = readStoredTasks();
+
+const taskApi = {
+  // GET /tasks
+  getTasks() {
+    return storedTasks.map((task) => ({ ...task }));
+  },
+
+  // POST /tasks — id призначає «сервер», а не UI
+  createTask({ text, priority, due }) {
+    const task = normalizeTodo({ id: generateId(), text, completed: false, priority, due });
+    storedTasks.push(task);
+    writeStoredTasks();
+    return { ...task };
+  },
+
+  // PATCH /tasks/:id — змінюються лише передані поля
+  updateTask(id, changes) {
+    const index = storedTasks.findIndex((task) => task.id === id);
+    if (index === -1) return null;
+
+    const task = normalizeTodo({ ...storedTasks[index], ...changes, id });
+    storedTasks[index] = task;
+    writeStoredTasks();
+    return { ...task };
+  },
+
+  // DELETE /tasks/:id
+  deleteTask(id) {
+    storedTasks = storedTasks.filter((task) => task.id !== id);
+    writeStoredTasks();
+  },
+};
+
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// ---------- Дії ----------
+// Дії викликають taskApi, а потім оновлюють стан UI (todos) і перемальовують екран
+
+function replaceTodo(updated) {
+  todos = todos.map((t) => (t.id === updated.id ? updated : t));
+}
+
 function addTodo({ text, priority, due }) {
-  const todo = { id: generateId(), text, completed: false, priority, due };
+  const todo = taskApi.createTask({ text, priority, due });
   todos.push(todo);
   enteringIds.add(todo.id);
-  commit();
+  render();
 }
 
 function toggleTodo(id) {
   const todo = todos.find((t) => t.id === id);
-  if (todo) {
-    todo.completed = !todo.completed;
+  if (!todo) return;
+
+  const updated = taskApi.updateTask(id, { completed: !todo.completed });
+  if (updated) {
+    replaceTodo(updated);
     toggledId = id;
-    commit();
+    render();
   }
 }
 
@@ -138,9 +189,10 @@ function removeTodos(ids) {
   render();
 
   setTimeout(() => {
+    fresh.forEach((id) => taskApi.deleteTask(id));
     todos = todos.filter((t) => !fresh.includes(t.id));
     fresh.forEach((id) => leavingIds.delete(id));
-    commit();
+    render();
   }, reducedMotion.matches ? 0 : LEAVE_DURATION);
 }
 
@@ -150,11 +202,6 @@ function deleteTodo(id) {
 
 function clearCompleted() {
   removeTodos(todos.filter((t) => t.completed).map((t) => t.id));
-}
-
-function commit() {
-  saveTodos();
-  render();
 }
 
 // ---------- Дати ----------
@@ -396,9 +443,8 @@ function finishEditing(li, save, shouldRender = true) {
       removeTodos([id]);
       return;
     }
-    const todo = todos.find((t) => t.id === id);
-    if (todo) Object.assign(todo, values);
-    saveTodos();
+    const updated = taskApi.updateTask(id, values);
+    if (updated) replaceTodo(updated);
   }
 
   if (shouldRender) render();
@@ -490,4 +536,5 @@ clearCompletedButton.addEventListener('click', clearCompleted);
 // ---------- Запуск ----------
 const todayText = todayFormat.format(new Date());
 todayLabel.textContent = todayText.charAt(0).toUpperCase() + todayText.slice(1);
+todos = taskApi.getTasks();
 render();
