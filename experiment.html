@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Експеримент: sync, Promise, async/await, fetch</title>
+  <!-- ТИМЧАСОВИЙ НАВЧАЛЬНИЙ ФАЙЛ. Не пов'язаний з Todo-застосунком. Видалити після експерименту. -->
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; background: #f6f6fb; color: #1f1f2e; }
+    .note { background: #fff4d6; border: 1px solid #f0d58a; padding: 8px 12px; border-radius: 8px; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+    button { padding: 8px 14px; border: 0; border-radius: 8px; background: #5b5bd6; color: #fff; font: inherit; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    pre { background: #1f1f2e; color: #e6e6f0; padding: 16px; border-radius: 8px; min-height: 200px; white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h1>Sync → Promise → async/await → fetch()</h1>
+  <p class="note">Тимчасовий навчальний файл. Todo-застосунок він не використовує. Дивіться також консоль DevTools (F12).</p>
+
+  <div class="buttons">
+    <button type="button" data-demo="sync">1. Синхронна функція</button>
+    <button type="button" data-demo="promise">2. Promise</button>
+    <button type="button" data-demo="async">3. async/await</button>
+    <button type="button" data-demo="fetch">4. fetch()</button>
+    <button type="button" data-demo="all">Запустити все</button>
+  </div>
+
+  <pre id="log">Натисніть кнопку, щоб запустити приклад.</pre>
+
+  <script>
+    'use strict';
+
+    // ---------- Допоміжне: журнал з часом від старту ----------
+    const logBox = document.getElementById('log');
+    let startTime = 0;
+
+    function log(message = '') {
+      const ms = String(Math.round(performance.now() - startTime)).padStart(5, ' ');
+      const line = message ? `[${ms} мс] ${message}` : '';
+      console.log(line);
+      logBox.textContent += line + '\n';
+    }
+
+    function section(title) {
+      log();
+      log(`===== ${title} =====`);
+    }
+
+    // Задачі у форматі нашого Todo-застосунку (як normalizeTodo в app.js)
+    const sampleTasks = [
+      { id: 'mgg8z1k4x7q2lp', text: 'Купити молоко', completed: false, priority: 'high', due: '2026-10-08' },
+      { id: 'mgg90abc12def3', text: 'Зробити домашнє', completed: true, priority: 'medium', due: '' },
+      { id: 'mgg91xyz98uvw7', text: 'Прочитати про fetch()', completed: false, priority: 'low', due: '' },
+    ];
+
+    // ---------- 1. Синхронна функція ----------
+    // Результат повертається одразу, наступний рядок чекає, поки функція завершиться.
+    function countActive(tasks) {
+      return tasks.filter((t) => !t.completed).length;
+    }
+
+    function demoSync() {
+      section('1. Синхронна функція');
+      log('До виклику countActive()');
+      const active = countActive(sampleTasks);
+      log(`Результат одразу: активних задач = ${active}`);
+      log('Після виклику — цей рядок ЗАВЖДИ після результату');
+    }
+
+    // ---------- 2. Promise ----------
+    // Імітація «сервера»: відповідь приходить через 1 секунду.
+    // resolve(...) — успіх, reject(...) — помилка.
+    function loadTasksWithPromise(shouldFail) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (shouldFail) {
+            reject(new Error('Сервер недоступний (імітація)'));
+          } else {
+            resolve(sampleTasks.map((t) => ({ ...t })));
+          }
+        }, 1000);
+      });
+    }
+
+    function demoPromise() {
+      section('2. Promise');
+      log('До виклику loadTasksWithPromise()');
+      const promise = loadTasksWithPromise(false);
+      log(`Повернувся не результат, а ${promise}`);
+      log('Після виклику — цей рядок виконується ДО результату!');
+
+      return promise
+        .then((tasks) => {
+          log(`.then: отримали ${tasks.length} задачі (через ~1 с)`);
+          log('Тепер запит, який завершиться помилкою...');
+          return loadTasksWithPromise(true);
+        })
+        .then(() => log('цей .then не виконається'))
+        .catch((error) => log(`.catch: ${error.message}`));
+    }
+
+    // ---------- 3. async/await ----------
+    // Той самий Promise, але код читається зверху вниз, як синхронний.
+    async function loadTasksAsync() {
+      log('  [всередині async] старт, чекаємо await...');
+      const tasks = await loadTasksWithPromise(false);
+      log('  [всередині async] дочекались');
+      return tasks.length;
+    }
+
+    async function demoAsyncAwait() {
+      section('3. async/await');
+      log('До виклику loadTasksAsync() — БЕЗ await');
+      const result = loadTasksAsync();
+      log(`async-функція теж повертає ${result}`);
+      log('Після виклику — код не чекає');
+
+      const count = await result;
+      log(`await result → ${count} (тепер це число, а не Promise)`);
+
+      log('Тепер запит з помилкою, ловимо через try/catch...');
+      try {
+        await loadTasksWithPromise(true);
+        log('цей рядок не виконається');
+      } catch (error) {
+        log(`catch: ${error.message}`);
+      }
+    }
+
+    // ---------- 4. fetch() ----------
+    // Справжній fetch(), але адреса — data: URL: JSON «вшитий» прямо в адресу,
+    // браузер не звертається до мережі.
+    const fakeUrl = 'data:application/json,' + encodeURIComponent(JSON.stringify(sampleTasks));
+
+    async function demoFetch() {
+      section('4. fetch()');
+      log('До виклику fetch() (data: URL, мережа не використовується)');
+      const responsePromise = fetch(fakeUrl);
+      log(`fetch повертає ${responsePromise}`);
+
+      try {
+        const response = await responsePromise;
+        log(`await fetch → Response: status = ${response.status}, ok = ${response.ok}`);
+
+        if (!response.ok) {
+          throw new Error(`Статус ${response.status}`);
+        }
+
+        const tasks = await response.json();
+        log(`await response.json() → масив з ${tasks.length} задач`);
+        log(`Перша задача: ${JSON.stringify(tasks[0])}`);
+      } catch (error) {
+        log(`catch: ${error.message}`);
+      }
+
+      // Так виглядав би Response, якби сервер відповів 404.
+      // new Response(...) — той самий тип об'єкта, який повертає fetch.
+      log();
+      log('Імітація відповіді сервера 404:');
+      const notFound = new Response(JSON.stringify({ error: 'Task not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+      log(`status = ${notFound.status}, ok = ${notFound.ok} — fetch НЕ кидає помилку на 404`);
+      try {
+        if (!notFound.ok) {
+          const body = await notFound.json();
+          throw new Error(`Статус ${notFound.status}: ${body.error}`);
+        }
+      } catch (error) {
+        log(`Перевірили response.ok самі → catch: ${error.message}`);
+      }
+    }
+
+    // ---------- Кнопки ----------
+    const demos = {
+      sync: demoSync,
+      promise: demoPromise,
+      async: demoAsyncAwait,
+      fetch: demoFetch,
+      async all() {
+        demoSync();
+        await demoPromise();
+        await demoAsyncAwait();
+        await demoFetch();
+      },
+    };
+
+    const buttons = document.querySelectorAll('[data-demo]');
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', async () => {
+        buttons.forEach((b) => { b.disabled = true; }); // щоб журнали не перемішувались
+        logBox.textContent = '';
+        console.clear();
+        startTime = performance.now();
+        try {
+          await demos[button.dataset.demo]();
+          log();
+          log('Готово.');
+        } finally {
+          buttons.forEach((b) => { b.disabled = false; });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
